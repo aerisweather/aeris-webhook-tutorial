@@ -1,0 +1,52 @@
+#!/bin/bash
+
+# This script is intended to be used after you stand up
+# a webhook endpoint by running `terraform apply` in the
+# terraform directory.
+
+# Macs don't support `readlink -f` or `realpath`, so we
+# implement our own version here with Python.
+function realpath() {
+    local path=$1
+
+    python3 -c 'from sys import argv; from os import path; print(path.realpath(argv[1]))' "$path"
+}
+
+script_dir=$(dirname "$(realpath "$0")")
+
+if [[ -z "$1" || "$1" == "-" ]]; then
+    data_file='/dev/stdin'
+else
+    data_file=$(realpath "$1")
+fi
+
+cd "$script_dir"
+tf_outputs='terraform/outputs'
+webhook_url_file=$(realpath "$tf_outputs/webhook-url.txt")
+webhook_key_file=$(realpath "$tf_outputs/x-webhook-tutorial-key.txt")
+
+error=0
+if [[ ! -f "$webhook_url_file" ]]; then
+    echo "$0: error: expected to find file containing webhook URL at $webhook_url_file" >&2
+    error=1
+fi
+if [[ ! -f "$webhook_key_file" ]]; then
+    echo "$0: error: expected to find file containing webhook API key at $webhook_key_file" >&2
+    error=1
+fi
+
+if [[ "$error" == 1 ]]; then
+    echo "$0: running \`terraform apply\` from within the terraform/ directory of this repository will generate the appropriate files" >&2
+    exit 1
+fi
+
+webhook_url=$(< "$webhook_url_file")
+webhook_key=$(< "$webhook_key_file")
+
+curl_output=$(
+    curl -s -X POST \
+        -H "X-Webhook-Tutorial-Key: $webhook_key" \
+        --data "@${data_file}" \
+        "$webhook_url"
+)
+echo "$curl_output"
